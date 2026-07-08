@@ -1,5 +1,3 @@
-import { createHash } from "crypto";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
@@ -61,12 +59,10 @@ function normalizeUrl(value, fieldName) {
     throw new Error(`${fieldName} is required`);
   }
 
-  // Allow internal relative links like /about or /services.
   if (trimmed.startsWith("/")) {
     return trimmed;
   }
 
-  // Allow user to type www.google.com instead of https://www.google.com.
   if (!/^https?:\/\//i.test(trimmed)) {
     trimmed = "https://" + trimmed;
   }
@@ -153,49 +149,44 @@ function getImageDimensions(buffer, contentType) {
   throw new Error("Could not read logo dimensions");
 }
 
-async function uploadAssetToWebflow({ token, siteId, fileName, contentType, buffer }) {
-  const fileHash = createHash("md5").update(buffer).digest("hex");
+async function uploadLogoToSupabase({
+  supabaseUrl,
+  serviceRoleKey,
+  bucket,
+  fileName,
+  contentType,
+  buffer
+}) {
+  const objectPath = `logos/${cleanFileName(fileName, contentType)}`;
 
-  const createAssetResponse = await fetch(
-    `https://api.webflow.com/v2/sites/${siteId}/assets`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        fileName,
-        fileHash
-      })
-    }
-  );
+  const uploadUrl =
+    `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${bucket}/${objectPath}`;
 
-  const asset = await createAssetResponse.json().catch(() => ({}));
-
-  if (!createAssetResponse.ok) {
-    throw new Error(`Webflow asset creation failed: ${JSON.stringify(asset)}`);
-  }
-
-  const formData = new FormData();
-
-  Object.entries(asset.uploadDetails || {}).forEach(([key, value]) => {
-    formData.append(key, value);
-  });
-
-  formData.append("file", new Blob([buffer], { type: contentType }), fileName);
-
-  const uploadResponse = await fetch(asset.uploadUrl, {
+  const response = await fetch(uploadUrl, {
     method: "POST",
-    body: formData
+    headers: {
+      "apikey": serviceRoleKey,
+      "Authorization": `Bearer ${serviceRoleKey}`,
+      "Content-Type": contentType,
+      "x-upsert": "false"
+    },
+    body: buffer
   });
 
-  if (!uploadResponse.ok) {
-    const uploadText = await uploadResponse.text().catch(() => "");
-    throw new Error(`Asset file upload failed: ${uploadResponse.status} ${uploadText}`);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(`Supabase logo upload failed: ${JSON.stringify(data)}`);
   }
 
-  return asset;
+  const publicUrl =
+    `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/${bucket}/${objectPath}`;
+
+  return {
+    objectPath,
+    publicUrl,
+    storageResponse: data
+  };
 }
 
 export default async function handler(req, res) {
@@ -216,20 +207,33 @@ export default async function handler(req, res) {
 
     const token = process.env.WEBFLOW_API_TOKEN;
     const collectionId = process.env.WEBFLOW_COLLECTION_ID;
-    const siteId = process.env.WEBFLOW_SITE_ID;
     const publicSiteBaseUrl = process.env.PUBLIC_SITE_BASE_URL;
     const collectionPathPrefix = process.env.COLLECTION_PATH_PREFIX;
 
-    if (!token || !collectionId || !siteId || !publicSiteBaseUrl || !collectionPathPrefix) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseLogoBucket = process.env.SUPABASE_LOGO_BUCKET || "logos";
+
+    if (
+      !token ||
+      !collectionId ||
+      !publicSiteBaseUrl ||
+      !collectionPathPrefix ||
+      !supabaseUrl ||
+      !supabaseServiceRoleKey ||
+      !supabaseLogoBucket
+    ) {
       return sendJson(res, 500, {
         error: "Missing one or more environment variables",
         step,
         details: {
           hasWebflowToken: Boolean(token),
           hasCollectionId: Boolean(collectionId),
-          hasSiteId: Boolean(siteId),
           hasPublicSiteBaseUrl: Boolean(publicSiteBaseUrl),
-          hasCollectionPathPrefix: Boolean(collectionPathPrefix)
+          hasCollectionPathPrefix: Boolean(collectionPathPrefix),
+          hasSupabaseUrl: Boolean(supabaseUrl),
+          hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
+          hasSupabaseLogoBucket: Boolean(supabaseLogoBucket)
         }
       });
     }
@@ -315,12 +319,13 @@ export default async function handler(req, res) {
       });
     }
 
-    step = "uploading logo to Webflow assets";
+    step = "uploading logo to Supabase Storage";
 
-    const uploadedLogo = await uploadAssetToWebflow({
-      token,
-      siteId,
-      fileName: cleanFileName(fileName, contentType),
+    const uploadedLogo = await uploadLogoToSupabase({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      bucket: supabaseLogoBucket,
+      fileName,
       contentType,
       buffer
     });
@@ -345,11 +350,7 @@ export default async function handler(req, res) {
           fieldData: {
             name: cleanName,
             slug: slug,
-            logo: {
-              fileId: uploadedLogo.id,
-              url: uploadedLogo.hostedUrl,
-              alt: `${cleanName} logo`
-            },
+            "logo-url": uploadedLogo.publicUrl,
             "option-1": option1,
             "option-2": option2,
             "option-3": option3,
@@ -383,8 +384,8 @@ export default async function handler(req, res) {
         fileName,
         width: dimensions.width,
         height: dimensions.height,
-        assetId: uploadedLogo.id,
-        hostedUrl: uploadedLogo.hostedUrl
+        publicUrl: uploadedLogo.publicUrl,
+        objectPath: uploadedLogo.objectPath
       },
       webflowResponse: data
     });
