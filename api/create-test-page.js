@@ -68,10 +68,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           isArchived: false,
           isDraft: false,
-          fieldData: {
-            name: cleanName,
-            slug: slug
-          }
+fielddata: {  name: cleanName,  slug,  logo: {    fileId: uploadedLogo.id,    url: uploadedLogo.hostedUrl,    alt: `${cleanName} logo`  },  "option-1": option1,  "option-2": option2,  "option-3": option3,  "option-1-link": option1Link,  "option-2-link": option2Link,  "option-3-link": option3Link}
         })
       }
     );
