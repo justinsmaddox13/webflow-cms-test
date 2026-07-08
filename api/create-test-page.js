@@ -55,17 +55,29 @@ function cleanFileName(fileName, contentType) {
 }
 
 function normalizeUrl(value, fieldName) {
-  const trimmed = String(value || "").trim();
+  let trimmed = String(value || "").trim();
 
   if (!trimmed) {
     throw new Error(`${fieldName} is required`);
   }
 
+  // Allow internal relative links like /about or /services.
   if (trimmed.startsWith("/")) {
     return trimmed;
   }
 
-  const url = new URL(trimmed);
+  // Allow user to type www.google.com instead of https://www.google.com.
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = "https://" + trimmed;
+  }
+
+  let url;
+
+  try {
+    url = new URL(trimmed);
+  } catch (error) {
+    throw new Error(`${fieldName} must be a valid URL`);
+  }
 
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error(`${fieldName} must be an http or https URL`);
@@ -187,6 +199,8 @@ async function uploadAssetToWebflow({ token, siteId, fileName, contentType, buff
 }
 
 export default async function handler(req, res) {
+  let step = "starting";
+
   if (req.method === "OPTIONS") {
     return sendJson(res, 200, {});
   }
@@ -198,6 +212,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    step = "checking environment variables";
+
     const token = process.env.WEBFLOW_API_TOKEN;
     const collectionId = process.env.WEBFLOW_COLLECTION_ID;
     const siteId = process.env.WEBFLOW_SITE_ID;
@@ -206,9 +222,19 @@ export default async function handler(req, res) {
 
     if (!token || !collectionId || !siteId || !publicSiteBaseUrl || !collectionPathPrefix) {
       return sendJson(res, 500, {
-        error: "Missing one or more environment variables"
+        error: "Missing one or more environment variables",
+        step,
+        details: {
+          hasWebflowToken: Boolean(token),
+          hasCollectionId: Boolean(collectionId),
+          hasSiteId: Boolean(siteId),
+          hasPublicSiteBaseUrl: Boolean(publicSiteBaseUrl),
+          hasCollectionPathPrefix: Boolean(collectionPathPrefix)
+        }
       });
     }
+
+    step = "reading request body";
 
     const body = getBody(req);
 
@@ -218,13 +244,16 @@ export default async function handler(req, res) {
 
     if (!option1 || !option2 || !option3) {
       return sendJson(res, 400, {
-        error: "Option 1, Option 2, and Option 3 are required"
+        error: "Option 1, Option 2, and Option 3 are required",
+        step
       });
     }
 
     const option1Link = normalizeUrl(body.option1Link, "Option 1 Link");
     const option2Link = normalizeUrl(body.option2Link, "Option 2 Link");
     const option3Link = normalizeUrl(body.option3Link, "Option 3 Link");
+
+    step = "validating logo file";
 
     const logo = body.logo || {};
     const fileName = String(logo.fileName || "");
@@ -233,7 +262,13 @@ export default async function handler(req, res) {
 
     if (!allowedTypes.has(contentType) || !allowedExts.has(ext)) {
       return sendJson(res, 400, {
-        error: "Logo must be a JPG, PNG, or WebP file"
+        error: "Logo must be a JPG, PNG, or WebP file",
+        step,
+        details: {
+          fileName,
+          contentType,
+          ext
+        }
       });
     }
 
@@ -243,7 +278,8 @@ export default async function handler(req, res) {
 
     if (!match) {
       return sendJson(res, 400, {
-        error: "Invalid logo upload"
+        error: "Invalid logo upload",
+        step
       });
     }
 
@@ -251,9 +287,15 @@ export default async function handler(req, res) {
 
     if (buffer.byteLength > 4 * 1024 * 1024) {
       return sendJson(res, 400, {
-        error: "Logo must be 4 MB or smaller"
+        error: "Logo must be 4 MB or smaller",
+        step,
+        details: {
+          sizeBytes: buffer.byteLength
+        }
       });
     }
+
+    step = "checking logo dimensions";
 
     const dimensions = getImageDimensions(buffer, contentType);
 
@@ -265,12 +307,15 @@ export default async function handler(req, res) {
     ) {
       return sendJson(res, 400, {
         error: `Logo must be between ${minWidth}-${maxWidth}px wide and ${minHeight}-${maxHeight}px tall`,
+        step,
         actual: {
           width: dimensions.width,
           height: dimensions.height
         }
       });
     }
+
+    step = "uploading logo to Webflow assets";
 
     const uploadedLogo = await uploadAssetToWebflow({
       token,
@@ -279,6 +324,8 @@ export default async function handler(req, res) {
       contentType,
       buffer
     });
+
+    step = "creating Webflow CMS item";
 
     const randomSuffix = Math.random().toString(36).slice(2, 7);
     const cleanName = `${option1} ${option2} ${option3}`.slice(0, 120);
@@ -319,6 +366,7 @@ export default async function handler(req, res) {
     if (!response.ok) {
       return sendJson(res, response.status, {
         error: "Webflow CMS item creation failed",
+        step,
         details: data
       });
     }
@@ -331,11 +379,21 @@ export default async function handler(req, res) {
       success: true,
       slug,
       pageUrl,
+      logo: {
+        fileName,
+        width: dimensions.width,
+        height: dimensions.height,
+        assetId: uploadedLogo.id,
+        hostedUrl: uploadedLogo.hostedUrl
+      },
       webflowResponse: data
     });
   } catch (error) {
+    console.error("Server error at step:", step, error);
+
     return sendJson(res, 500, {
       error: "Server error",
+      step,
       details: error.message
     });
   }
