@@ -1,5 +1,4 @@
 import { createHash } from "crypto";
-import { imageSize } from "image-size";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,6 +13,71 @@ const minWidth = 648;
 const maxWidth = 972;
 const minHeight = 120;
 const maxHeight = 180;
+
+function readUInt24BE(buffer, offset) {
+  return (buffer[offset] << 16) + (buffer[offset + 1] << 8) + buffer[offset + 2];
+}
+
+function getImageDimensions(buffer, contentType) {
+  if (contentType === "image/png") {
+    return {
+      width: buffer.readUInt32BE(16),
+      height: buffer.readUInt32BE(20)
+    };
+  }
+
+  if (contentType === "image/jpeg") {
+    let offset = 2;
+
+    while (offset < buffer.length) {
+      if (buffer[offset] !== 0xff) break;
+
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+
+      if (marker >= 0xc0 && marker <= 0xc3) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7)
+        };
+      }
+
+      offset += 2 + length;
+    }
+  }
+
+  if (contentType === "image/webp") {
+    const format = buffer.toString("ascii", 12, 16);
+
+    if (format === "VP8X") {
+      return {
+        width: 1 + readUInt24BE(buffer, 24),
+        height: 1 + readUInt24BE(buffer, 27)
+      };
+    }
+
+    if (format === "VP8 ") {
+      return {
+        width: buffer.readUInt16LE(26) & 0x3fff,
+        height: buffer.readUInt16LE(28) & 0x3fff
+      };
+    }
+
+    if (format === "VP8L") {
+      const b0 = buffer[21];
+      const b1 = buffer[22];
+      const b2 = buffer[23];
+      const b3 = buffer[24];
+
+      return {
+        width: 1 + (((b1 & 0x3f) << 8) | b0),
+        height: 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6))
+      };
+    }
+  }
+
+  throw new Error("Could not read logo dimensions");
+}
 
 function sendJson(res, status, data) {
   Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -180,7 +244,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const dimensions = imageSize(buffer);
+const dimensions = getImageDimensions(buffer, contentType);
 
     if (
       dimensions.width < minWidth ||
