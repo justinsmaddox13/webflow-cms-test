@@ -5,6 +5,7 @@ const corsHeaders = {
 };
 
 const FIELD_SLUGS = {
+  logoUrl: "logo-url",
   extLink1Name: "extlink1-name",
   extLink2Name: "extlink2-name",
   extLink3Name: "extlink3-name",
@@ -15,6 +16,10 @@ const FIELD_SLUGS = {
   extLink4Url: "extlink4-url",
   freeClassUrl: "freeclass-url"
 };
+
+const allowedLogoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const allowedLogoExts = new Set(["jpg", "jpeg", "png", "webp"]);
+const maxLogoSizeBytes = 2.5 * 1024 * 1024;
 
 function sendJson(res, status, data) {
   Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -73,6 +78,20 @@ function normalizeUrl(value, fieldName) {
   return url.href;
 }
 
+function cleanFileName(fileName, contentType) {
+  const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1];
+
+  const base =
+    String(fileName || "logo")
+      .replace(/\.[^.]+$/, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "logo";
+
+  return `${base}-${Date.now()}.${ext}`;
+}
+
 async function getCollectionSchema({ token, collectionId }) {
   const response = await fetch(`https://api.webflow.com/v2/collections/${collectionId}`, {
     method: "GET",
@@ -99,6 +118,50 @@ async function getCollectionSchema({ token, collectionId }) {
   };
 }
 
+async function uploadLogoToSupabase({
+  supabaseUrl,
+  serviceRoleKey,
+  bucket,
+  businessSlug,
+  fileName,
+  contentType,
+  buffer
+}) {
+  const safeFileName = cleanFileName(fileName, contentType);
+  const objectPath = `logos/${businessSlug}/${safeFileName}`;
+
+  const cleanSupabaseUrl = supabaseUrl.replace(/\/$/, "");
+
+  const uploadUrl =
+    `${cleanSupabaseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": contentType,
+      "x-upsert": "false"
+    },
+    body: buffer
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(`Supabase logo upload failed: ${JSON.stringify(data)}`);
+  }
+
+  const publicUrl =
+    `${cleanSupabaseUrl}/storage/v1/object/public/${bucket}/${objectPath}`;
+
+  return {
+    objectPath,
+    publicUrl,
+    storageResponse: data
+  };
+}
+
 export default async function handler(req, res) {
   let step = "starting";
 
@@ -120,7 +183,19 @@ export default async function handler(req, res) {
     const publicSiteBaseUrl = process.env.PUBLIC_SITE_BASE_URL;
     const collectionPathPrefix = process.env.COLLECTION_PATH_PREFIX;
 
-    if (!token || !collectionId || !publicSiteBaseUrl || !collectionPathPrefix) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseLogoBucket = process.env.SUPABASE_LOGO_BUCKET || "Image_Bucket";
+
+    if (
+      !token ||
+      !collectionId ||
+      !publicSiteBaseUrl ||
+      !collectionPathPrefix ||
+      !supabaseUrl ||
+      !supabaseServiceRoleKey ||
+      !supabaseLogoBucket
+    ) {
       return sendJson(res, 500, {
         error: "Missing one or more environment variables",
         step,
@@ -128,7 +203,10 @@ export default async function handler(req, res) {
           hasWebflowToken: Boolean(token),
           hasCollectionId: Boolean(collectionId),
           hasPublicSiteBaseUrl: Boolean(publicSiteBaseUrl),
-          hasCollectionPathPrefix: Boolean(collectionPathPrefix)
+          hasCollectionPathPrefix: Boolean(collectionPathPrefix),
+          hasSupabaseUrl: Boolean(supabaseUrl),
+          hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
+          hasSupabaseLogoBucket: Boolean(supabaseLogoBucket)
         }
       });
     }
@@ -176,6 +254,56 @@ export default async function handler(req, res) {
     const extLink4Url = normalizeUrl(body.extLink4Url, "ExtLink4 URL");
     const freeClassUrl = normalizeUrl(body.freeClassUrl, "FreeClass URL");
 
+    step = "validating logo file";
+
+    const logo = body.logo || {};
+    const fileName = String(logo.fileName || "");
+    const contentType = String(logo.contentType || "").toLowerCase();
+    const ext = fileName.split(".").pop()?.toLowerCase();
+
+    if (!fileName || !contentType || !logo.dataUrl) {
+      return sendJson(res, 400, {
+        error: "Logo upload is required",
+        step
+      });
+    }
+
+    if (!allowedLogoTypes.has(contentType) || !allowedLogoExts.has(ext)) {
+      return sendJson(res, 400, {
+        error: "Logo must be a JPG, PNG, or WebP file",
+        step,
+        details: {
+          fileName,
+          contentType,
+          ext
+        }
+      });
+    }
+
+    const match = String(logo.dataUrl || "").match(
+      /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i
+    );
+
+    if (!match) {
+      return sendJson(res, 400, {
+        error: "Invalid logo upload",
+        step
+      });
+    }
+
+    const buffer = Buffer.from(match[2], "base64");
+
+    if (buffer.byteLength > maxLogoSizeBytes) {
+      return sendJson(res, 400, {
+        error: "Logo file is too large",
+        step,
+        details: {
+          maxSizeMB: 2.5,
+          actualSizeBytes: buffer.byteLength
+        }
+      });
+    }
+
     step = "checking Webflow collection schema";
 
     const schema = await getCollectionSchema({
@@ -201,11 +329,25 @@ export default async function handler(req, res) {
       });
     }
 
+    step = "uploading logo to Supabase Storage";
+
+    const uploadedLogo = await uploadLogoToSupabase({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      bucket: supabaseLogoBucket,
+      businessSlug: slug,
+      fileName,
+      contentType,
+      buffer
+    });
+
     step = "creating live Webflow CMS item";
 
     const fieldData = {
       name: businessName,
       slug: slug,
+
+      [FIELD_SLUGS.logoUrl]: uploadedLogo.publicUrl,
 
       [FIELD_SLUGS.extLink1Name]: extLink1Name,
       [FIELD_SLUGS.extLink2Name]: extLink2Name,
@@ -258,6 +400,13 @@ export default async function handler(req, res) {
       success: true,
       slug,
       pageUrl,
+      logo: {
+        fileName,
+        contentType,
+        sizeBytes: buffer.byteLength,
+        publicUrl: uploadedLogo.publicUrl,
+        objectPath: uploadedLogo.objectPath
+      },
       note: "Live CMS item created.",
       webflowResponse: data
     });
