@@ -5,7 +5,7 @@ const corsHeaders = {
 };
 
 const FIELD_SLUGS = {
-  extLink1Name: "extlink1",
+  extLink1Name: "extlink1-name",
   extLink2Name: "extlink2-name",
   extLink3Name: "extlink3-name",
   extLink4Name: "extlink4-name",
