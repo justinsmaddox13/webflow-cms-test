@@ -201,7 +201,7 @@ export default async function handler(req, res) {
       });
     }
 
-    step = "creating Webflow CMS item";
+    step = "creating live Webflow CMS item";
 
     const fieldData = {
       name: businessName,
@@ -220,7 +220,7 @@ export default async function handler(req, res) {
     };
 
     const response = await fetch(
-      `https://api.webflow.com/v2/collections/${collectionId}/items`,
+      `https://api.webflow.com/v2/collections/${collectionId}/items/live`,
       {
         method: "POST",
         headers: {
@@ -239,7 +239,7 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       return sendJson(res, response.status, {
-        error: "Webflow CMS item creation failed",
+        error: "Webflow live CMS item creation failed",
         step,
         details: data,
         collectionId,
@@ -258,7 +258,7 @@ export default async function handler(req, res) {
       success: true,
       slug,
       pageUrl,
-      note: "CMS item created. If the page does not appear immediately, publish the Webflow site once.",
+      note: "Live CMS item created.",
       webflowResponse: data
     });
   } catch (error) {
