@@ -5,8 +5,8 @@ const corsHeaders = {
 };
 
 /*
-  These are your exact Webflow CMS API slugs from the debug endpoint.
-  We are intentionally ignoring logo-url for now.
+  Exact Webflow CMS API slugs.
+  Ignoring logo-url for now.
 */
 const FIELD_SLUGS = {
   extLink1Name: "extlink1",
@@ -40,10 +40,11 @@ function slugify(text) {
   return String(text)
     .toLowerCase()
     .trim()
+    .replace(/&/g, "and")
     .replace(/['"]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
+    .slice(0, 80);
 }
 
 function normalizeUrl(value, fieldName) {
@@ -53,12 +54,10 @@ function normalizeUrl(value, fieldName) {
     throw new Error(`${fieldName} is required`);
   }
 
-  // Allow internal relative links like /about or /locations.
   if (trimmed.startsWith("/")) {
     return trimmed;
   }
 
-  // Allow user to type www.example.com instead of https://www.example.com.
   if (!/^https?:\/\//i.test(trimmed)) {
     trimmed = "https://" + trimmed;
   }
@@ -137,6 +136,18 @@ export default async function handler(req, res) {
       });
     }
 
+    const slug = slugify(businessName);
+
+    if (!slug) {
+      return sendJson(res, 400, {
+        error: "Business/Page Name could not be converted into a valid slug",
+        step,
+        details: {
+          businessName
+        }
+      });
+    }
+
     const extLink1Url = normalizeUrl(body.extLink1Url, "ExtLink1 URL");
     const extLink2Url = normalizeUrl(body.extLink2Url, "ExtLink2 URL");
     const extLink3Url = normalizeUrl(body.extLink3Url, "ExtLink3 URL");
@@ -144,9 +155,6 @@ export default async function handler(req, res) {
     const freeClassUrl = normalizeUrl(body.freeClassUrl, "FreeClass URL");
 
     step = "creating Webflow CMS item";
-
-    const randomSuffix = Math.random().toString(36).slice(2, 7);
-    const slug = `${slugify(businessName) || "landing-page"}-${randomSuffix}`;
 
     const fieldData = {
       name: businessName,
