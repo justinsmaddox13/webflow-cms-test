@@ -4,10 +4,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
-/*
-  Exact Webflow CMS API slugs.
-  Ignoring logo-url for now.
-*/
 const FIELD_SLUGS = {
   extLink1Name: "extlink1",
   extLink2Name: "extlink2-name",
@@ -75,6 +71,32 @@ function normalizeUrl(value, fieldName) {
   }
 
   return url.href;
+}
+
+async function getCollectionSchema({ token, collectionId }) {
+  const response = await fetch(`https://api.webflow.com/v2/collections/${collectionId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(`Could not fetch Webflow collection schema: ${JSON.stringify(data)}`);
+  }
+
+  const fields = Array.isArray(data.fields) ? data.fields : [];
+  const slugs = fields.map((field) => field.slug).filter(Boolean);
+
+  return {
+    collectionName: data.displayName || data.name || null,
+    collectionSlug: data.slug || null,
+    fieldSlugs: slugs,
+    raw: data
+  };
 }
 
 export default async function handler(req, res) {
@@ -154,6 +176,31 @@ export default async function handler(req, res) {
     const extLink4Url = normalizeUrl(body.extLink4Url, "ExtLink4 URL");
     const freeClassUrl = normalizeUrl(body.freeClassUrl, "FreeClass URL");
 
+    step = "checking Webflow collection schema";
+
+    const schema = await getCollectionSchema({
+      token,
+      collectionId
+    });
+
+    const requiredCustomSlugs = Object.values(FIELD_SLUGS);
+    const missingSlugs = requiredCustomSlugs.filter((slug) => !schema.fieldSlugs.includes(slug));
+
+    if (missingSlugs.length > 0) {
+      return sendJson(res, 400, {
+        error: "Vercel/Webflow is not seeing the expected CMS fields",
+        step,
+        details: {
+          collectionId,
+          collectionName: schema.collectionName,
+          collectionSlug: schema.collectionSlug,
+          expectedSlugs: requiredCustomSlugs,
+          missingSlugs,
+          slugsWebflowReturned: schema.fieldSlugs
+        }
+      });
+    }
+
     step = "creating Webflow CMS item";
 
     const fieldData = {
@@ -173,7 +220,7 @@ export default async function handler(req, res) {
     };
 
     const response = await fetch(
-      `https://api.webflow.com/v2/collections/${collectionId}/items/live`,
+      `https://api.webflow.com/v2/collections/${collectionId}/items`,
       {
         method: "POST",
         headers: {
@@ -195,6 +242,10 @@ export default async function handler(req, res) {
         error: "Webflow CMS item creation failed",
         step,
         details: data,
+        collectionId,
+        collectionName: schema.collectionName,
+        collectionSlug: schema.collectionSlug,
+        slugsWebflowReturned: schema.fieldSlugs,
         fieldDataAttempted: fieldData
       });
     }
@@ -207,6 +258,7 @@ export default async function handler(req, res) {
       success: true,
       slug,
       pageUrl,
+      note: "CMS item created. If the page does not appear immediately, publish the Webflow site once.",
       webflowResponse: data
     });
   } catch (error) {
