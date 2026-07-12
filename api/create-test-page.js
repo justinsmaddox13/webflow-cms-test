@@ -15,6 +15,10 @@ const IMAGE_FIELDS = [
   { key: "bottomHeroImageUrl", label: "Bottom Hero Image", slug: "bottom-hero-image-url" }
 ];
 
+const COLOR_FIELDS = [
+  { key: "subColor1", label: "SubColor 1", slug: "subcolor-1" }
+];
+
 const TEXT_FIELDS = [
   { key: "homePageUrl", label: "HomePage URL", slug: "homepage-url", kind: "url" },
 
@@ -129,6 +133,16 @@ function normalizeUrl(value, fieldName) {
   }
 
   return url.href;
+}
+
+function validateHexColor(value, fieldName) {
+  const color = String(value || "").trim();
+
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+    throw new Error(`${fieldName} must be a valid hex color like #ffffff`);
+  }
+
+  return color.toLowerCase();
 }
 
 function cleanFileName(fileName, contentType) {
@@ -326,6 +340,7 @@ export default async function handler(req, res) {
 
     const fields = body.fields || {};
     const images = body.images || {};
+    const colors = body.colors || {};
 
     const fieldData = {
       name: businessName,
@@ -359,6 +374,10 @@ export default async function handler(req, res) {
       });
     }
 
+    for (const field of COLOR_FIELDS) {
+      fieldData[field.slug] = validateHexColor(colors[field.key], field.label);
+    }
+
     step = "checking Webflow collection schema";
 
     const schema = await getCollectionSchema({
@@ -368,7 +387,8 @@ export default async function handler(req, res) {
 
     const requiredCustomSlugs = [
       ...TEXT_FIELDS.map((field) => field.slug),
-      ...IMAGE_FIELDS.map((field) => field.slug)
+      ...IMAGE_FIELDS.map((field) => field.slug),
+      ...COLOR_FIELDS.map((field) => field.slug)
     ];
 
     const missingSlugs = requiredCustomSlugs.filter(
@@ -487,6 +507,9 @@ export default async function handler(req, res) {
             objectPath: value.objectPath
           }
         ])
+      ),
+      colors: Object.fromEntries(
+        COLOR_FIELDS.map((field) => [field.key, fieldData[field.slug]])
       ),
       note: "Live CMS item created.",
       webflowResponse: data
