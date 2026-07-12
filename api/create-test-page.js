@@ -188,6 +188,18 @@ async function getCollectionSchema({ token, collectionId }) {
   };
 }
 
+function validateSchema({ schema, requiredSlugs, collectionLabel }) {
+  const missingSlugs = requiredSlugs.filter(
+    (slug) => !schema.fieldSlugs.includes(slug)
+  );
+
+  if (missingSlugs.length > 0) {
+    throw new Error(
+      `${collectionLabel} collection is missing expected CMS slugs: ${missingSlugs.join(", ")}`
+    );
+  }
+}
+
 function parseImageUpload(image, label) {
   const fileName = String(image?.fileName || "");
   const contentType = String(image?.contentType || "").toLowerCase();
@@ -267,6 +279,32 @@ async function uploadImageToSupabase({
   };
 }
 
+async function createLiveItem({ token, collectionId, fieldData, label }) {
+  const response = await fetch(
+    `https://api.webflow.com/v2/collections/${collectionId}/items/live`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        isArchived: false,
+        isDraft: false,
+        fieldData
+      })
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(`${label} Webflow live CMS item creation failed: ${JSON.stringify(data)}`);
+  }
+
+  return data;
+}
+
 export default async function handler(req, res) {
   let step = "starting";
 
@@ -284,9 +322,13 @@ export default async function handler(req, res) {
     step = "checking environment variables";
 
     const token = process.env.WEBFLOW_API_TOKEN;
-    const collectionId = process.env.WEBFLOW_COLLECTION_ID;
+
+    const publicCollectionId = process.env.WEBFLOW_COLLECTION_ID;
+    const editCollectionId = process.env.WEBFLOW_EDIT_COLLECTION_ID;
+
     const publicSiteBaseUrl = process.env.PUBLIC_SITE_BASE_URL;
-    const collectionPathPrefix = process.env.COLLECTION_PATH_PREFIX;
+    const publicCollectionPathPrefix = process.env.COLLECTION_PATH_PREFIX;
+    const editCollectionPathPrefix = process.env.EDIT_COLLECTION_PATH_PREFIX;
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -294,9 +336,11 @@ export default async function handler(req, res) {
 
     if (
       !token ||
-      !collectionId ||
+      !publicCollectionId ||
+      !editCollectionId ||
       !publicSiteBaseUrl ||
-      !collectionPathPrefix ||
+      !publicCollectionPathPrefix ||
+      !editCollectionPathPrefix ||
       !supabaseUrl ||
       !supabaseServiceRoleKey ||
       !supabaseImageBucket
@@ -306,9 +350,11 @@ export default async function handler(req, res) {
         step,
         details: {
           hasWebflowToken: Boolean(token),
-          hasCollectionId: Boolean(collectionId),
+          hasPublicCollectionId: Boolean(publicCollectionId),
+          hasEditCollectionId: Boolean(editCollectionId),
           hasPublicSiteBaseUrl: Boolean(publicSiteBaseUrl),
-          hasCollectionPathPrefix: Boolean(collectionPathPrefix),
+          hasPublicCollectionPathPrefix: Boolean(publicCollectionPathPrefix),
+          hasEditCollectionPathPrefix: Boolean(editCollectionPathPrefix),
           hasSupabaseUrl: Boolean(supabaseUrl),
           hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
           hasSupabaseImageBucket: Boolean(supabaseImageBucket)
@@ -381,12 +427,7 @@ export default async function handler(req, res) {
       fieldData[field.slug] = validateHexColor(colors[field.key], field.label);
     }
 
-    step = "checking Webflow collection schema";
-
-    const schema = await getCollectionSchema({
-      token,
-      collectionId
-    });
+    step = "checking Webflow collection schemas";
 
     const requiredCustomSlugs = [
       ...TEXT_FIELDS.map((field) => field.slug),
@@ -394,24 +435,27 @@ export default async function handler(req, res) {
       ...COLOR_FIELDS.map((field) => field.slug)
     ];
 
-    const missingSlugs = requiredCustomSlugs.filter(
-      (slug) => !schema.fieldSlugs.includes(slug)
-    );
+    const publicSchema = await getCollectionSchema({
+      token,
+      collectionId: publicCollectionId
+    });
 
-    if (missingSlugs.length > 0) {
-      return sendJson(res, 400, {
-        error: "Vercel/Webflow is not seeing the expected CMS fields",
-        step,
-        details: {
-          collectionId,
-          collectionName: schema.collectionName,
-          collectionSlug: schema.collectionSlug,
-          expectedSlugs: requiredCustomSlugs,
-          missingSlugs,
-          slugsWebflowReturned: schema.fieldSlugs
-        }
-      });
-    }
+    const editSchema = await getCollectionSchema({
+      token,
+      collectionId: editCollectionId
+    });
+
+    validateSchema({
+      schema: publicSchema,
+      requiredSlugs: requiredCustomSlugs,
+      collectionLabel: "Public OTs"
+    });
+
+    validateSchema({
+      schema: editSchema,
+      requiredSlugs: requiredCustomSlugs,
+      collectionLabel: "Edit OT Pages"
+    });
 
     step = "validating image uploads";
 
@@ -461,47 +505,37 @@ export default async function handler(req, res) {
       fieldData[imageField.slug] = uploaded.publicUrl;
     }
 
-    step = "creating live Webflow CMS item";
+    step = "creating public Webflow CMS item";
 
-    const response = await fetch(
-      `https://api.webflow.com/v2/collections/${collectionId}/items/live`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          isArchived: false,
-          isDraft: false,
-          fieldData
-        })
-      }
-    );
+    const publicItem = await createLiveItem({
+      token,
+      collectionId: publicCollectionId,
+      fieldData,
+      label: "Public page"
+    });
 
-    const data = await response.json().catch(() => ({}));
+    step = "creating edit Webflow CMS item";
 
-    if (!response.ok) {
-      return sendJson(res, response.status, {
-        error: "Webflow live CMS item creation failed",
-        step,
-        details: data,
-        collectionId,
-        collectionName: schema.collectionName,
-        collectionSlug: schema.collectionSlug,
-        slugsWebflowReturned: schema.fieldSlugs,
-        fieldDataAttempted: fieldData
-      });
-    }
+    const editItem = await createLiveItem({
+      token,
+      collectionId: editCollectionId,
+      fieldData,
+      label: "Edit page"
+    });
 
     const baseUrl = publicSiteBaseUrl.replace(/\/$/, "");
-    const prefix = collectionPathPrefix.replace(/^\/?/, "/").replace(/\/?$/, "/");
-    const pageUrl = `${baseUrl}${prefix}${slug}`;
+    const publicPrefix = publicCollectionPathPrefix.replace(/^\/?/, "/").replace(/\/?$/, "/");
+    const editPrefix = editCollectionPathPrefix.replace(/^\/?/, "/").replace(/\/?$/, "/");
+
+    const publicPageUrl = `${baseUrl}${publicPrefix}${slug}`;
+    const editPageUrl = `${baseUrl}${editPrefix}${slug}`;
 
     return sendJson(res, 200, {
       success: true,
       slug,
-      pageUrl,
+      pageUrl: publicPageUrl,
+      publicPageUrl,
+      editPageUrl,
       uploadedImages: Object.fromEntries(
         Object.entries(uploadedImages).map(([key, value]) => [
           key,
@@ -514,8 +548,9 @@ export default async function handler(req, res) {
       colors: Object.fromEntries(
         COLOR_FIELDS.map((field) => [field.key, fieldData[field.slug]])
       ),
-      note: "Live CMS item created.",
-      webflowResponse: data
+      note: "Public page and edit page created.",
+      publicItem,
+      editItem
     });
   } catch (error) {
     console.error("Server error at step:", step, error);
