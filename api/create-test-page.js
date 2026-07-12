@@ -4,22 +4,69 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type"
 };
 
-const FIELD_SLUGS = {
-  logoUrl: "logo-url",
-  extLink1Name: "extlink1-name",
-  extLink2Name: "extlink2-name",
-  extLink3Name: "extlink3-name",
-  extLink4Name: "extlink4-name",
-  extLink1Url: "extlink1-url-2",
-  extLink2Url: "extlink2-url-2",
-  extLink3Url: "extlink3-url-2",
-  extLink4Url: "extlink4-url",
-  freeClassUrl: "freeclass-url"
-};
+const IMAGE_FIELDS = [
+  { key: "logoUrl", label: "Logo", slug: "logo-url" },
+  { key: "heroImageUrl", label: "Hero Image", slug: "hero-image-url" },
+  { key: "feature1ImageUrl", label: "Feature 1 Image", slug: "feature-1-image-url" },
+  { key: "feature2ImageUrl", label: "Feature 2 Image", slug: "feature-2-image-url" },
+  { key: "clientImageUrl1", label: "Client Image 1", slug: "client-image-url-1" },
+  { key: "clientImageUrl2", label: "Client Image 2", slug: "client-image-url-2" },
+  { key: "clientImageUrl3", label: "Client Image 3", slug: "client-image-url-3" },
+  { key: "bottomHeroImageUrl", label: "Bottom Hero Image", slug: "bottom-hero-image-url" }
+];
 
-const allowedLogoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const allowedLogoExts = new Set(["jpg", "jpeg", "png", "webp"]);
-const maxLogoSizeBytes = 2.5 * 1024 * 1024;
+const TEXT_FIELDS = [
+  { key: "homePageUrl", label: "HomePage URL", slug: "homepage-url", kind: "url" },
+
+  { key: "extLink1Name", label: "ExtLink1 Name", slug: "extlink1-name", kind: "text" },
+  { key: "extLink2Name", label: "ExtLink2 Name", slug: "extlink2-name", kind: "text" },
+  { key: "extLink3Name", label: "ExtLink3 Name", slug: "extlink3-name", kind: "text" },
+  { key: "extLink4Name", label: "ExtLink4 Name", slug: "extlink4-name", kind: "text" },
+
+  { key: "heroOfferText", label: "Hero Offer Text", slug: "hero-offer-text", kind: "text" },
+
+  { key: "extLink1Url", label: "ExtLink1 URL", slug: "extlink1-url-2", kind: "url" },
+  { key: "extLink2Url", label: "ExtLink2 URL", slug: "extlink2-url-2", kind: "url" },
+  { key: "extLink3Url", label: "ExtLink3 URL", slug: "extlink3-url-2", kind: "url" },
+  { key: "extLink4Url", label: "ExtLink4 URL", slug: "extlink4-url", kind: "url" },
+  { key: "freeClassUrl", label: "FreeClass URL", slug: "freeclass-url", kind: "url" },
+
+  { key: "city", label: "City", slug: "city", kind: "text" },
+  { key: "streetAddress", label: "Street Address", slug: "street-address", kind: "text" },
+  { key: "phone", label: "Phone", slug: "phone", kind: "text" },
+
+  { key: "membershipUrl", label: "Membership URL", slug: "membership-url", kind: "url" },
+  { key: "freeClassCta", label: "Free Class CTA", slug: "free-class-cta", kind: "text" },
+
+  { key: "mainHeroHeadline", label: "Main Hero Headline", slug: "main-hero-headline", kind: "text" },
+  { key: "heroSavingsCta", label: "Hero Savings CTA", slug: "hero-savings-cta", kind: "text" },
+  { key: "heroSavingsSubtext", label: "Hero Savings Subtext", slug: "hero-savings-subtext", kind: "text" },
+
+  { key: "feature1Title", label: "Feature 1 Title", slug: "feature-1-title", kind: "text" },
+  { key: "feature1Blurb", label: "Feature 1 Blurb", slug: "feature-1-blurb", kind: "text" },
+
+  { key: "feature2Title", label: "Feature 2 Title", slug: "feature-2-title", kind: "text" },
+  { key: "feature2Blurb", label: "Feature 2 Blurb", slug: "feature-2-blurb", kind: "text" },
+  { key: "feature2CtaText", label: "Feature 2 CTA Text", slug: "feature-2-cta-text", kind: "text" },
+  { key: "feature2CtaUrl", label: "Feature 2 CTA URL", slug: "feature-2-cta-url", kind: "urlText" },
+
+  { key: "testimonialHeader", label: "Testimonial Header", slug: "testimonial-header", kind: "text" },
+  { key: "testimonial1Text", label: "Testimonial 1 Text", slug: "testimonial-1-text", kind: "text" },
+  { key: "testimonial2Text", label: "Testimonial 2 Text", slug: "testimonial-2-text", kind: "text" },
+  { key: "testimonial3Text", label: "Testimonial 3 Text", slug: "testimonial-3-text", kind: "text" },
+
+  { key: "clientName1", label: "Client Name 1", slug: "client-name-1", kind: "text" },
+  { key: "clientName2", label: "Client Name 2", slug: "client-name-2", kind: "text" },
+  { key: "clientName3", label: "Client Name 3", slug: "client-name-3", kind: "text" },
+
+  { key: "bottomHeroCta", label: "Bottom Hero CTA", slug: "bottom-hero-cta", kind: "text" }
+];
+
+const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const allowedImageExts = new Set(["jpg", "jpeg", "png", "webp"]);
+
+const maxSingleImageSizeBytes = 1.25 * 1024 * 1024;
+const maxTotalImageSizeBytes = 3.5 * 1024 * 1024;
 
 function sendJson(res, status, data) {
   Object.entries(corsHeaders).forEach(([key, value]) => {
@@ -48,8 +95,14 @@ function slugify(text) {
     .slice(0, 80);
 }
 
+function cleanPlainText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeUrl(value, fieldName) {
-  let trimmed = String(value || "").trim();
+  let trimmed = cleanPlainText(value);
 
   if (!trimmed) {
     throw new Error(`${fieldName} is required`);
@@ -82,12 +135,12 @@ function cleanFileName(fileName, contentType) {
   const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1];
 
   const base =
-    String(fileName || "logo")
+    String(fileName || "image")
       .replace(/\.[^.]+$/, "")
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "logo";
+      .slice(0, 60) || "image";
 
   return `${base}-${Date.now()}.${ext}`;
 }
@@ -118,18 +171,53 @@ async function getCollectionSchema({ token, collectionId }) {
   };
 }
 
-async function uploadLogoToSupabase({
+function parseImageUpload(image, label) {
+  const fileName = String(image?.fileName || "");
+  const contentType = String(image?.contentType || "").toLowerCase();
+  const ext = fileName.split(".").pop()?.toLowerCase();
+
+  if (!fileName || !contentType || !image?.dataUrl) {
+    throw new Error(`${label} upload is required`);
+  }
+
+  if (!allowedImageTypes.has(contentType) || !allowedImageExts.has(ext)) {
+    throw new Error(`${label} must be a JPG, PNG, or WebP file`);
+  }
+
+  const match = String(image.dataUrl || "").match(
+    /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i
+  );
+
+  if (!match) {
+    throw new Error(`${label} upload is invalid`);
+  }
+
+  const buffer = Buffer.from(match[2], "base64");
+
+  if (buffer.byteLength > maxSingleImageSizeBytes) {
+    throw new Error(`${label} is too large. Max size is 1.25 MB.`);
+  }
+
+  return {
+    fileName,
+    contentType,
+    buffer,
+    sizeBytes: buffer.byteLength
+  };
+}
+
+async function uploadImageToSupabase({
   supabaseUrl,
   serviceRoleKey,
   bucket,
   businessSlug,
+  fieldKey,
   fileName,
   contentType,
   buffer
 }) {
   const safeFileName = cleanFileName(fileName, contentType);
-  const objectPath = `logos/${businessSlug}/${safeFileName}`;
-
+  const objectPath = `page-images/${businessSlug}/${fieldKey}-${safeFileName}`;
   const cleanSupabaseUrl = supabaseUrl.replace(/\/$/, "");
 
   const uploadUrl =
@@ -149,7 +237,7 @@ async function uploadLogoToSupabase({
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(`Supabase logo upload failed: ${JSON.stringify(data)}`);
+    throw new Error(`Supabase upload failed for ${fieldKey}: ${JSON.stringify(data)}`);
   }
 
   const publicUrl =
@@ -185,7 +273,7 @@ export default async function handler(req, res) {
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseLogoBucket = process.env.SUPABASE_LOGO_BUCKET || "Image_Bucket";
+    const supabaseImageBucket = process.env.SUPABASE_LOGO_BUCKET || "Image_Bucket";
 
     if (
       !token ||
@@ -194,7 +282,7 @@ export default async function handler(req, res) {
       !collectionPathPrefix ||
       !supabaseUrl ||
       !supabaseServiceRoleKey ||
-      !supabaseLogoBucket
+      !supabaseImageBucket
     ) {
       return sendJson(res, 500, {
         error: "Missing one or more environment variables",
@@ -206,7 +294,7 @@ export default async function handler(req, res) {
           hasCollectionPathPrefix: Boolean(collectionPathPrefix),
           hasSupabaseUrl: Boolean(supabaseUrl),
           hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
-          hasSupabaseLogoBucket: Boolean(supabaseLogoBucket)
+          hasSupabaseImageBucket: Boolean(supabaseImageBucket)
         }
       });
     }
@@ -215,24 +303,12 @@ export default async function handler(req, res) {
 
     const body = getBody(req);
 
-    const businessName = String(body.businessName || "").trim();
+    const businessName = cleanPlainText(body.businessName);
 
-    const extLink1Name = String(body.extLink1Name || "").trim();
-    const extLink2Name = String(body.extLink2Name || "").trim();
-    const extLink3Name = String(body.extLink3Name || "").trim();
-    const extLink4Name = String(body.extLink4Name || "").trim();
-
-    if (!businessName || !extLink1Name || !extLink2Name || !extLink3Name || !extLink4Name) {
+    if (!businessName) {
       return sendJson(res, 400, {
-        error: "Missing required text fields",
-        step,
-        details: {
-          hasBusinessName: Boolean(businessName),
-          hasExtLink1Name: Boolean(extLink1Name),
-          hasExtLink2Name: Boolean(extLink2Name),
-          hasExtLink3Name: Boolean(extLink3Name),
-          hasExtLink4Name: Boolean(extLink4Name)
-        }
+        error: "Business / Page Name is required",
+        step
       });
     }
 
@@ -240,7 +316,7 @@ export default async function handler(req, res) {
 
     if (!slug) {
       return sendJson(res, 400, {
-        error: "Business/Page Name could not be converted into a valid slug",
+        error: "Business / Page Name could not be converted into a valid slug",
         step,
         details: {
           businessName
@@ -248,58 +324,37 @@ export default async function handler(req, res) {
       });
     }
 
-    const extLink1Url = normalizeUrl(body.extLink1Url, "ExtLink1 URL");
-    const extLink2Url = normalizeUrl(body.extLink2Url, "ExtLink2 URL");
-    const extLink3Url = normalizeUrl(body.extLink3Url, "ExtLink3 URL");
-    const extLink4Url = normalizeUrl(body.extLink4Url, "ExtLink4 URL");
-    const freeClassUrl = normalizeUrl(body.freeClassUrl, "FreeClass URL");
+    const fields = body.fields || {};
+    const images = body.images || {};
 
-    step = "validating logo file";
+    const fieldData = {
+      name: businessName,
+      slug: slug
+    };
 
-    const logo = body.logo || {};
-    const fileName = String(logo.fileName || "");
-    const contentType = String(logo.contentType || "").toLowerCase();
-    const ext = fileName.split(".").pop()?.toLowerCase();
+    const missingTextFields = [];
 
-    if (!fileName || !contentType || !logo.dataUrl) {
-      return sendJson(res, 400, {
-        error: "Logo upload is required",
-        step
-      });
+    for (const field of TEXT_FIELDS) {
+      const rawValue = cleanPlainText(fields[field.key]);
+
+      if (!rawValue) {
+        missingTextFields.push(field.label);
+        continue;
+      }
+
+      if (field.kind === "url" || field.kind === "urlText") {
+        fieldData[field.slug] = normalizeUrl(rawValue, field.label);
+      } else {
+        fieldData[field.slug] = rawValue;
+      }
     }
 
-    if (!allowedLogoTypes.has(contentType) || !allowedLogoExts.has(ext)) {
+    if (missingTextFields.length > 0) {
       return sendJson(res, 400, {
-        error: "Logo must be a JPG, PNG, or WebP file",
+        error: "Missing required text/link fields",
         step,
         details: {
-          fileName,
-          contentType,
-          ext
-        }
-      });
-    }
-
-    const match = String(logo.dataUrl || "").match(
-      /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i
-    );
-
-    if (!match) {
-      return sendJson(res, 400, {
-        error: "Invalid logo upload",
-        step
-      });
-    }
-
-    const buffer = Buffer.from(match[2], "base64");
-
-    if (buffer.byteLength > maxLogoSizeBytes) {
-      return sendJson(res, 400, {
-        error: "Logo file is too large",
-        step,
-        details: {
-          maxSizeMB: 2.5,
-          actualSizeBytes: buffer.byteLength
+          missingTextFields
         }
       });
     }
@@ -311,8 +366,14 @@ export default async function handler(req, res) {
       collectionId
     });
 
-    const requiredCustomSlugs = Object.values(FIELD_SLUGS);
-    const missingSlugs = requiredCustomSlugs.filter((slug) => !schema.fieldSlugs.includes(slug));
+    const requiredCustomSlugs = [
+      ...TEXT_FIELDS.map((field) => field.slug),
+      ...IMAGE_FIELDS.map((field) => field.slug)
+    ];
+
+    const missingSlugs = requiredCustomSlugs.filter(
+      (slug) => !schema.fieldSlugs.includes(slug)
+    );
 
     if (missingSlugs.length > 0) {
       return sendJson(res, 400, {
@@ -329,37 +390,55 @@ export default async function handler(req, res) {
       });
     }
 
-    step = "uploading logo to Supabase Storage";
+    step = "validating image uploads";
 
-    const uploadedLogo = await uploadLogoToSupabase({
-      supabaseUrl,
-      serviceRoleKey: supabaseServiceRoleKey,
-      bucket: supabaseLogoBucket,
-      businessSlug: slug,
-      fileName,
-      contentType,
-      buffer
-    });
+    const parsedImages = {};
+    let totalImageBytes = 0;
+
+    for (const imageField of IMAGE_FIELDS) {
+      const parsed = parseImageUpload(
+        images[imageField.key],
+        imageField.label
+      );
+
+      parsedImages[imageField.key] = parsed;
+      totalImageBytes += parsed.sizeBytes;
+    }
+
+    if (totalImageBytes > maxTotalImageSizeBytes) {
+      return sendJson(res, 400, {
+        error: "Total image upload size is too large",
+        step,
+        details: {
+          maxTotalMB: 3.5,
+          totalImageBytes
+        }
+      });
+    }
+
+    step = "uploading images to Supabase Storage";
+
+    const uploadedImages = {};
+
+    for (const imageField of IMAGE_FIELDS) {
+      const parsed = parsedImages[imageField.key];
+
+      const uploaded = await uploadImageToSupabase({
+        supabaseUrl,
+        serviceRoleKey: supabaseServiceRoleKey,
+        bucket: supabaseImageBucket,
+        businessSlug: slug,
+        fieldKey: imageField.key,
+        fileName: parsed.fileName,
+        contentType: parsed.contentType,
+        buffer: parsed.buffer
+      });
+
+      uploadedImages[imageField.key] = uploaded;
+      fieldData[imageField.slug] = uploaded.publicUrl;
+    }
 
     step = "creating live Webflow CMS item";
-
-    const fieldData = {
-      name: businessName,
-      slug: slug,
-
-      [FIELD_SLUGS.logoUrl]: uploadedLogo.publicUrl,
-
-      [FIELD_SLUGS.extLink1Name]: extLink1Name,
-      [FIELD_SLUGS.extLink2Name]: extLink2Name,
-      [FIELD_SLUGS.extLink3Name]: extLink3Name,
-      [FIELD_SLUGS.extLink4Name]: extLink4Name,
-
-      [FIELD_SLUGS.extLink1Url]: extLink1Url,
-      [FIELD_SLUGS.extLink2Url]: extLink2Url,
-      [FIELD_SLUGS.extLink3Url]: extLink3Url,
-      [FIELD_SLUGS.extLink4Url]: extLink4Url,
-      [FIELD_SLUGS.freeClassUrl]: freeClassUrl
-    };
 
     const response = await fetch(
       `https://api.webflow.com/v2/collections/${collectionId}/items/live`,
@@ -400,13 +479,15 @@ export default async function handler(req, res) {
       success: true,
       slug,
       pageUrl,
-      logo: {
-        fileName,
-        contentType,
-        sizeBytes: buffer.byteLength,
-        publicUrl: uploadedLogo.publicUrl,
-        objectPath: uploadedLogo.objectPath
-      },
+      uploadedImages: Object.fromEntries(
+        Object.entries(uploadedImages).map(([key, value]) => [
+          key,
+          {
+            publicUrl: value.publicUrl,
+            objectPath: value.objectPath
+          }
+        ])
+      ),
       note: "Live CMS item created.",
       webflowResponse: data
     });
