@@ -16,7 +16,10 @@ const IMAGE_FIELDS = [
 ];
 
 const COLOR_FIELDS = [
-  { key: "subColor1", label: "SubColor 1", slug: "subcolor-1" }
+  { key: "subColor1", label: "SubColor 1", slug: "subcolor-1" },
+  { key: "subColor2", label: "SubColor 2", slug: "subcolor-2" },
+  { key: "mainColor", label: "Main Color", slug: "main-color" },
+  { key: "bgColor", label: "BG Color", slug: "bg-color" }
 ];
 
 const TEXT_FIELDS = [
