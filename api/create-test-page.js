@@ -55,7 +55,7 @@ const TEXT_FIELDS = [
   { key: "feature2Title", label: "Feature 2 Title", slug: "feature-2-title", kind: "text" },
   { key: "feature2Blurb", label: "Feature 2 Blurb", slug: "feature-2-blurb", kind: "text" },
   { key: "feature2CtaText", label: "Feature 2 CTA Text", slug: "feature-2-cta-text", kind: "text" },
-  { key: "feature2CtaUrl", label: "Feature 2 CTA URL", slug: "feature-2-cta-url", kind: "urlText" },
+  { key: "feature2CtaUrl", label: "Feature 2 CTA URL", slug: "feature-2-cta-url-2", kind: "urlText" },
 
   { key: "testimonialHeader", label: "Testimonial Header", slug: "testimonial-header", kind: "text" },
   { key: "testimonial1Text", label: "Testimonial 1 Text", slug: "testimonial-1-text", kind: "text" },
