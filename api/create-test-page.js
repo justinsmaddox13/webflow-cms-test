@@ -1,7 +1,7 @@
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
-  "Access-Control-Allow-Headers": "Content-Type"
+  "Access-Control-Allow-Headers": "Content-Type, Authorization"
 };
 
 const IMAGE_FIELDS = [
@@ -91,6 +91,12 @@ function getBody(req) {
   return req.body || {};
 }
 
+function cleanPlainText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function slugify(text) {
   return String(text)
     .toLowerCase()
@@ -100,12 +106,6 @@ function slugify(text) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
-}
-
-function cleanPlainText(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function normalizeUrl(value, fieldName) {
@@ -162,6 +162,70 @@ function cleanFileName(fileName, contentType) {
   return `${base}-${Date.now()}.${ext}`;
 }
 
+function parseImageUpload(image, label) {
+  const fileName = String(image?.fileName || "");
+  const contentType = String(image?.contentType || "").toLowerCase();
+  const ext = fileName.split(".").pop()?.toLowerCase();
+
+  if (!fileName || !contentType || !image?.dataUrl) {
+    throw new Error(`${label} upload is required`);
+  }
+
+  if (!allowedImageTypes.has(contentType) || !allowedImageExts.has(ext)) {
+    throw new Error(`${label} must be a JPG, PNG, or WebP file`);
+  }
+
+  const match = String(image.dataUrl || "").match(
+    /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i
+  );
+
+  if (!match) {
+    throw new Error(`${label} upload is invalid`);
+  }
+
+  const buffer = Buffer.from(match[2], "base64");
+
+  if (buffer.byteLength > maxSingleImageSizeBytes) {
+    throw new Error(`${label} is too large. Max size is 1.25 MB.`);
+  }
+
+  return {
+    fileName,
+    contentType,
+    buffer,
+    sizeBytes: buffer.byteLength
+  };
+}
+
+function extractBearerToken(req) {
+  const authHeader = req.headers.authorization || req.headers.Authorization || "";
+
+  if (!authHeader || !String(authHeader).startsWith("Bearer ")) {
+    throw new Error("You must be logged in to create a page.");
+  }
+
+  return String(authHeader).replace("Bearer ", "").trim();
+}
+
+async function getUserFromAccessToken({ supabaseUrl, supabaseAnonKey, accessToken }) {
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/auth/v1/user`, {
+    method: "GET",
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.id) {
+    throw new Error("Could not verify logged-in user.");
+  }
+
+  return data;
+}
+
 async function getCollectionSchema({ token, collectionId }) {
   const response = await fetch(`https://api.webflow.com/v2/collections/${collectionId}`, {
     method: "GET",
@@ -198,41 +262,6 @@ function validateSchema({ schema, requiredSlugs, collectionLabel }) {
       `${collectionLabel} collection is missing expected CMS slugs: ${missingSlugs.join(", ")}`
     );
   }
-}
-
-function parseImageUpload(image, label) {
-  const fileName = String(image?.fileName || "");
-  const contentType = String(image?.contentType || "").toLowerCase();
-  const ext = fileName.split(".").pop()?.toLowerCase();
-
-  if (!fileName || !contentType || !image?.dataUrl) {
-    throw new Error(`${label} upload is required`);
-  }
-
-  if (!allowedImageTypes.has(contentType) || !allowedImageExts.has(ext)) {
-    throw new Error(`${label} must be a JPG, PNG, or WebP file`);
-  }
-
-  const match = String(image.dataUrl || "").match(
-    /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i
-  );
-
-  if (!match) {
-    throw new Error(`${label} upload is invalid`);
-  }
-
-  const buffer = Buffer.from(match[2], "base64");
-
-  if (buffer.byteLength > maxSingleImageSizeBytes) {
-    throw new Error(`${label} is too large. Max size is 1.25 MB.`);
-  }
-
-  return {
-    fileName,
-    contentType,
-    buffer,
-    sizeBytes: buffer.byteLength
-  };
 }
 
 async function uploadImageToSupabase({
@@ -305,6 +334,86 @@ async function createLiveItem({ token, collectionId, fieldData, label }) {
   return data;
 }
 
+function extractWebflowItemId(responseData) {
+  return (
+    responseData?.id ||
+    responseData?._id ||
+    responseData?.item?.id ||
+    responseData?.items?.[0]?.id ||
+    null
+  );
+}
+
+async function supabaseRest({
+  supabaseUrl,
+  serviceRoleKey,
+  method,
+  path,
+  body,
+  prefer
+}) {
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+      ...(prefer ? { Prefer: prefer } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+
+  const text = await response.text();
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = text;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Supabase REST error: ${JSON.stringify(data)}`);
+  }
+
+  return data;
+}
+
+async function ensurePageDoesNotExist({ supabaseUrl, serviceRoleKey, userId, slug }) {
+  const path =
+    `landing_pages?select=id,slug` +
+    `&user_id=eq.${encodeURIComponent(userId)}` +
+    `&slug=eq.${encodeURIComponent(slug)}`;
+
+  const existing = await supabaseRest({
+    supabaseUrl,
+    serviceRoleKey,
+    method: "GET",
+    path
+  });
+
+  if (Array.isArray(existing) && existing.length > 0) {
+    throw new Error("You already have a page with this slug. Use a different Business / Page Name.");
+  }
+}
+
+async function insertLandingPageRecord({
+  supabaseUrl,
+  serviceRoleKey,
+  record
+}) {
+  const data = await supabaseRest({
+    supabaseUrl,
+    serviceRoleKey,
+    method: "POST",
+    path: "landing_pages",
+    body: record,
+    prefer: "return=representation"
+  });
+
+  return Array.isArray(data) ? data[0] : data;
+}
+
 export default async function handler(req, res) {
   let step = "starting";
 
@@ -331,6 +440,7 @@ export default async function handler(req, res) {
     const editCollectionPathPrefix = process.env.EDIT_COLLECTION_PATH_PREFIX;
 
     const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseImageBucket = process.env.SUPABASE_LOGO_BUCKET || "Image_Bucket";
 
@@ -342,6 +452,7 @@ export default async function handler(req, res) {
       !publicCollectionPathPrefix ||
       !editCollectionPathPrefix ||
       !supabaseUrl ||
+      !supabaseAnonKey ||
       !supabaseServiceRoleKey ||
       !supabaseImageBucket
     ) {
@@ -356,16 +467,26 @@ export default async function handler(req, res) {
           hasPublicCollectionPathPrefix: Boolean(publicCollectionPathPrefix),
           hasEditCollectionPathPrefix: Boolean(editCollectionPathPrefix),
           hasSupabaseUrl: Boolean(supabaseUrl),
+          hasSupabaseAnonKey: Boolean(supabaseAnonKey),
           hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
           hasSupabaseImageBucket: Boolean(supabaseImageBucket)
         }
       });
     }
 
+    step = "verifying logged-in user";
+
+    const accessToken = extractBearerToken(req);
+
+    const user = await getUserFromAccessToken({
+      supabaseUrl,
+      supabaseAnonKey,
+      accessToken
+    });
+
     step = "reading request body";
 
     const body = getBody(req);
-
     const businessName = cleanPlainText(body.businessName);
 
     if (!businessName) {
@@ -386,6 +507,15 @@ export default async function handler(req, res) {
         }
       });
     }
+
+    step = "checking for duplicate page slug";
+
+    await ensurePageDoesNotExist({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      userId: user.id,
+      slug
+    });
 
     const fields = body.fields || {};
     const images = body.images || {};
@@ -530,12 +660,35 @@ export default async function handler(req, res) {
     const publicPageUrl = `${baseUrl}${publicPrefix}${slug}`;
     const editPageUrl = `${baseUrl}${editPrefix}${slug}`;
 
+    const publicItemId = extractWebflowItemId(publicItem);
+    const editItemId = extractWebflowItemId(editItem);
+
+    step = "storing landing page ownership in Supabase";
+
+    const landingPageRecord = await insertLandingPageRecord({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      record: {
+        user_id: user.id,
+        page_name: businessName,
+        slug,
+        public_url: publicPageUrl,
+        edit_url: editPageUrl,
+        webflow_public_collection_id: publicCollectionId,
+        webflow_public_item_id: publicItemId,
+        webflow_edit_collection_id: editCollectionId,
+        webflow_edit_item_id: editItemId,
+        status: "active"
+      }
+    });
+
     return sendJson(res, 200, {
       success: true,
       slug,
       pageUrl: publicPageUrl,
       publicPageUrl,
       editPageUrl,
+      landingPageRecord,
       uploadedImages: Object.fromEntries(
         Object.entries(uploadedImages).map(([key, value]) => [
           key,
@@ -548,7 +701,7 @@ export default async function handler(req, res) {
       colors: Object.fromEntries(
         COLOR_FIELDS.map((field) => [field.key, fieldData[field.slug]])
       ),
-      note: "Public page and edit page created.",
+      note: "Public page, edit page, and Supabase ownership record created.",
       publicItem,
       editItem
     });
