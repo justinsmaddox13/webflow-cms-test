@@ -124,7 +124,7 @@ export default async function handler(req, res) {
 
     return sendJson(res, 200, {
       success: true,
-      tracked: Boolean(firstResult && firstResult.landing_page_id),
+      tracked: Boolean(firstResult && firstResult.tracked_page_id),
       slug,
       totalViews: firstResult ? Number(firstResult.total_views || 0) : 0,
       uniqueViews: firstResult ? Number(firstResult.unique_views || 0) : 0,
