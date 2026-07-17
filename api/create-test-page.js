@@ -226,6 +226,81 @@ async function getUserFromAccessToken({ supabaseUrl, supabaseAnonKey, accessToke
   return data;
 }
 
+async function supabaseRest({
+  supabaseUrl,
+  serviceRoleKey,
+  method,
+  path,
+  body,
+  prefer
+}) {
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+      ...(prefer ? { Prefer: prefer } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+
+  const text = await response.text();
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    data = text;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Supabase REST error: ${JSON.stringify(data)}`);
+  }
+
+  return data;
+}
+
+async function getUserProfileForAccessCheck({
+  supabaseUrl,
+  serviceRoleKey,
+  userId
+}) {
+  const path =
+    `profiles?select=id,email,access_level,plan_key` +
+    `&id=eq.${encodeURIComponent(userId)}` +
+    `&limit=1`;
+
+  const data = await supabaseRest({
+    supabaseUrl,
+    serviceRoleKey,
+    method: "GET",
+    path
+  });
+
+  return Array.isArray(data) && data.length > 0 ? data[0] : null;
+}
+
+async function getUserExistingPageCountForAccessCheck({
+  supabaseUrl,
+  serviceRoleKey,
+  userId
+}) {
+  const path =
+    `landing_pages?select=id` +
+    `&user_id=eq.${encodeURIComponent(userId)}` +
+    `&limit=2`;
+
+  const data = await supabaseRest({
+    supabaseUrl,
+    serviceRoleKey,
+    method: "GET",
+    path
+  });
+
+  return Array.isArray(data) ? data.length : 0;
+}
+
 async function getCollectionSchema({ token, collectionId }) {
   const response = await fetch(`https://api.webflow.com/v2/collections/${collectionId}`, {
     method: "GET",
@@ -344,41 +419,6 @@ function extractWebflowItemId(responseData) {
   );
 }
 
-async function supabaseRest({
-  supabaseUrl,
-  serviceRoleKey,
-  method,
-  path,
-  body,
-  prefer
-}) {
-  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/${path}`, {
-    method,
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      "Content-Type": "application/json",
-      ...(prefer ? { Prefer: prefer } : {})
-    },
-    ...(body ? { body: JSON.stringify(body) } : {})
-  });
-
-  const text = await response.text();
-  let data = null;
-
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch (error) {
-    data = text;
-  }
-
-  if (!response.ok) {
-    throw new Error(`Supabase REST error: ${JSON.stringify(data)}`);
-  }
-
-  return data;
-}
-
 async function ensurePageDoesNotExist({ supabaseUrl, serviceRoleKey, userId, slug }) {
   const path =
     `landing_pages?select=id,slug` +
@@ -483,6 +523,32 @@ export default async function handler(req, res) {
       supabaseAnonKey,
       accessToken
     });
+
+    step = "checking account page limit";
+
+    const profile = await getUserProfileForAccessCheck({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      userId: user.id
+    });
+
+    const accessLevel = Number(profile && profile.access_level ? profile.access_level : 1);
+
+    const existingPageCount = await getUserExistingPageCountForAccessCheck({
+      supabaseUrl,
+      serviceRoleKey: supabaseServiceRoleKey,
+      userId: user.id
+    });
+
+    if (accessLevel <= 1 && existingPageCount >= 1) {
+      return sendJson(res, 403, {
+        error: "Free trial accounts are limited to one page.",
+        code: "PAGE_LIMIT_REACHED",
+        redirectTo: "/subscriptions",
+        accessLevel,
+        existingPageCount
+      });
+    }
 
     step = "reading request body";
 
@@ -689,6 +755,8 @@ export default async function handler(req, res) {
       publicPageUrl,
       editPageUrl,
       landingPageRecord,
+      accessLevel,
+      existingPageCountBeforeCreate: existingPageCount,
       uploadedImages: Object.fromEntries(
         Object.entries(uploadedImages).map(([key, value]) => [
           key,
