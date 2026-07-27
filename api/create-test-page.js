@@ -24,54 +24,42 @@ const COLOR_FIELDS = [
 
 const TEXT_FIELDS = [
   { key: "homePageUrl", label: "HomePage URL", slug: "homepage-url", kind: "url" },
-
   { key: "extLink1Name", label: "ExtLink1 Name", slug: "extlink1-name", kind: "text" },
   { key: "extLink2Name", label: "ExtLink2 Name", slug: "extlink2-name", kind: "text" },
   { key: "extLink3Name", label: "ExtLink3 Name", slug: "extlink3-name", kind: "text" },
   { key: "extLink4Name", label: "ExtLink4 Name", slug: "extlink4-name", kind: "text" },
-
   { key: "heroOfferText", label: "Hero Offer Text", slug: "hero-offer-text", kind: "text" },
-
   { key: "extLink1Url", label: "ExtLink1 URL", slug: "extlink1-url-2", kind: "url" },
   { key: "extLink2Url", label: "ExtLink2 URL", slug: "extlink2-url-2", kind: "url" },
   { key: "extLink3Url", label: "ExtLink3 URL", slug: "extlink3-url-2", kind: "url" },
   { key: "extLink4Url", label: "ExtLink4 URL", slug: "extlink4-url", kind: "url" },
   { key: "freeClassUrl", label: "FreeClass URL", slug: "freeclass-url", kind: "url" },
-
   { key: "city", label: "City", slug: "city", kind: "text" },
   { key: "streetAddress", label: "Street Address", slug: "street-address", kind: "text" },
   { key: "phone", label: "Phone", slug: "phone", kind: "text" },
-
   { key: "membershipUrl", label: "Membership URL", slug: "membership-url", kind: "url" },
   { key: "freeClassCta", label: "Free Class CTA", slug: "free-class-cta", kind: "text" },
-
   { key: "mainHeroHeadline", label: "Main Hero Headline", slug: "main-hero-headline", kind: "text" },
   { key: "heroSavingsCta", label: "Hero Savings CTA", slug: "hero-savings-cta", kind: "text" },
   { key: "heroSavingsSubtext", label: "Hero Savings Subtext", slug: "hero-savings-subtext", kind: "text" },
-
   { key: "feature1Title", label: "Feature 1 Title", slug: "feature-1-title", kind: "text" },
   { key: "feature1Blurb", label: "Feature 1 Blurb", slug: "feature-1-blurb", kind: "text" },
-
   { key: "feature2Title", label: "Feature 2 Title", slug: "feature-2-title", kind: "text" },
   { key: "feature2Blurb", label: "Feature 2 Blurb", slug: "feature-2-blurb", kind: "text" },
   { key: "feature2CtaText", label: "Feature 2 CTA Text", slug: "feature-2-cta-text", kind: "text" },
   { key: "feature2CtaUrl", label: "Feature 2 CTA URL", slug: "feature-2-cta-url-2", kind: "urlText" },
-
   { key: "testimonialHeader", label: "Testimonial Header", slug: "testimonial-header", kind: "text" },
   { key: "testimonial1Text", label: "Testimonial 1 Text", slug: "testimonial-1-text", kind: "text" },
   { key: "testimonial2Text", label: "Testimonial 2 Text", slug: "testimonial-2-text", kind: "text" },
   { key: "testimonial3Text", label: "Testimonial 3 Text", slug: "testimonial-3-text", kind: "text" },
-
   { key: "clientName1", label: "Client Name 1", slug: "client-name-1", kind: "text" },
   { key: "clientName2", label: "Client Name 2", slug: "client-name-2", kind: "text" },
   { key: "clientName3", label: "Client Name 3", slug: "client-name-3", kind: "text" },
-
   { key: "bottomHeroCta", label: "Bottom Hero CTA", slug: "bottom-hero-cta", kind: "text" }
 ];
 
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const allowedImageExts = new Set(["jpg", "jpeg", "png", "webp"]);
-
 const maxSingleImageSizeBytes = 1.25 * 1024 * 1024;
 const maxTotalImageSizeBytes = 3.5 * 1024 * 1024;
 
@@ -84,17 +72,12 @@ function sendJson(res, status, data) {
 }
 
 function getBody(req) {
-  if (typeof req.body === "string") {
-    return JSON.parse(req.body);
-  }
-
+  if (typeof req.body === "string") return JSON.parse(req.body);
   return req.body || {};
 }
 
 function cleanPlainText(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function slugify(text) {
@@ -111,13 +94,9 @@ function slugify(text) {
 function normalizeUrl(value, fieldName) {
   let trimmed = cleanPlainText(value);
 
-  if (!trimmed) {
-    throw new Error(`${fieldName} is required`);
-  }
+  if (!trimmed) throw new Error(`${fieldName} is required`);
 
-  if (trimmed.startsWith("/")) {
-    return trimmed;
-  }
+  if (trimmed.startsWith("/")) return trimmed;
 
   if (!/^https?:\/\//i.test(trimmed)) {
     trimmed = "https://" + trimmed;
@@ -136,6 +115,14 @@ function normalizeUrl(value, fieldName) {
   }
 
   return url.href;
+}
+
+function validateOptionalPublicUrl(value, fieldName) {
+  const trimmed = cleanPlainText(value);
+
+  if (!trimmed) return "";
+
+  return normalizeUrl(trimmed, fieldName);
 }
 
 function validateHexColor(value, fieldName) {
@@ -168,7 +155,7 @@ function parseImageUpload(image, label) {
   const ext = fileName.split(".").pop()?.toLowerCase();
 
   if (!fileName || !contentType || !image?.dataUrl) {
-    throw new Error(`${label} upload is required`);
+    return null;
   }
 
   if (!allowedImageTypes.has(contentType) || !allowedImageExts.has(ext)) {
@@ -320,8 +307,6 @@ async function getCollectionSchema({ token, collectionId }) {
   const slugs = fields.map((field) => field.slug).filter(Boolean);
 
   return {
-    collectionName: data.displayName || data.name || null,
-    collectionSlug: data.slug || null,
     fieldSlugs: slugs,
     raw: data
   };
@@ -352,9 +337,7 @@ async function uploadImageToSupabase({
   const safeFileName = cleanFileName(fileName, contentType);
   const objectPath = `page-images/${businessSlug}/${fieldKey}-${safeFileName}`;
   const cleanSupabaseUrl = supabaseUrl.replace(/\/$/, "");
-
-  const uploadUrl =
-    `${cleanSupabaseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+  const uploadUrl = `${cleanSupabaseUrl}/storage/v1/object/${bucket}/${objectPath}`;
 
   const response = await fetch(uploadUrl, {
     method: "POST",
@@ -378,8 +361,7 @@ async function uploadImageToSupabase({
 
   return {
     objectPath,
-    publicUrl,
-    storageResponse: data
+    publicUrl
   };
 }
 
@@ -437,11 +419,7 @@ async function ensurePageDoesNotExist({ supabaseUrl, serviceRoleKey, userId, slu
   }
 }
 
-async function insertLandingPageRecord({
-  supabaseUrl,
-  serviceRoleKey,
-  record
-}) {
+async function insertLandingPageRecord({ supabaseUrl, serviceRoleKey, record }) {
   const data = await supabaseRest({
     supabaseUrl,
     serviceRoleKey,
@@ -452,6 +430,30 @@ async function insertLandingPageRecord({
   });
 
   return Array.isArray(data) ? data[0] : data;
+}
+
+async function insertExperimentRecord({ supabaseUrl, serviceRoleKey, record }) {
+  const data = await supabaseRest({
+    supabaseUrl,
+    serviceRoleKey,
+    method: "POST",
+    path: "experiments",
+    body: record,
+    prefer: "return=representation"
+  });
+
+  return Array.isArray(data) ? data[0] : data;
+}
+
+function buildSiteUrl(baseUrl, path, params) {
+  const cleanBase = baseUrl.replace(/\/$/, "");
+  const url = new URL(cleanBase + path);
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  return url.href;
 }
 
 export default async function handler(req, res) {
@@ -471,14 +473,11 @@ export default async function handler(req, res) {
     step = "checking environment variables";
 
     const token = process.env.WEBFLOW_API_TOKEN;
-
     const publicCollectionId = process.env.WEBFLOW_COLLECTION_ID;
     const editCollectionId = process.env.WEBFLOW_EDIT_COLLECTION_ID;
-
     const publicSiteBaseUrl = process.env.PUBLIC_SITE_BASE_URL;
     const publicCollectionPathPrefix = process.env.COLLECTION_PATH_PREFIX;
     const editCollectionPathPrefix = process.env.EDIT_COLLECTION_PATH_PREFIX;
-
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -498,19 +497,7 @@ export default async function handler(req, res) {
     ) {
       return sendJson(res, 500, {
         error: "Missing one or more environment variables",
-        step,
-        details: {
-          hasWebflowToken: Boolean(token),
-          hasPublicCollectionId: Boolean(publicCollectionId),
-          hasEditCollectionId: Boolean(editCollectionId),
-          hasPublicSiteBaseUrl: Boolean(publicSiteBaseUrl),
-          hasPublicCollectionPathPrefix: Boolean(publicCollectionPathPrefix),
-          hasEditCollectionPathPrefix: Boolean(editCollectionPathPrefix),
-          hasSupabaseUrl: Boolean(supabaseUrl),
-          hasSupabaseAnonKey: Boolean(supabaseAnonKey),
-          hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
-          hasSupabaseImageBucket: Boolean(supabaseImageBucket)
-        }
+        step
       });
     }
 
@@ -567,10 +554,7 @@ export default async function handler(req, res) {
     if (!slug) {
       return sendJson(res, 400, {
         error: "Business / Page Name could not be converted into a valid slug",
-        step,
-        details: {
-          businessName
-        }
+        step
       });
     }
 
@@ -585,11 +569,17 @@ export default async function handler(req, res) {
 
     const fields = body.fields || {};
     const images = body.images || {};
+    const imageUrls = body.imageUrls || {};
     const colors = body.colors || {};
+    const abTest = body.abTest || {};
+    const abTestEnabled = Boolean(abTest.enabled);
+    const currentLandingPageUrl = abTestEnabled
+      ? normalizeUrl(abTest.currentLandingPageUrl, "Current Landing Page URL")
+      : "";
 
     const fieldData = {
       name: businessName,
-      slug: slug
+      slug
     };
 
     const missingTextFields = [];
@@ -653,19 +643,32 @@ export default async function handler(req, res) {
       collectionLabel: "Edit OT Pages"
     });
 
-    step = "validating image uploads";
+    step = "validating image uploads and image URLs";
 
     const parsedImages = {};
     let totalImageBytes = 0;
 
     for (const imageField of IMAGE_FIELDS) {
-      const parsed = parseImageUpload(
-        images[imageField.key],
-        imageField.label
-      );
+      const parsed = parseImageUpload(images[imageField.key], imageField.label);
 
-      parsedImages[imageField.key] = parsed;
-      totalImageBytes += parsed.sizeBytes;
+      if (parsed) {
+        parsedImages[imageField.key] = parsed;
+        totalImageBytes += parsed.sizeBytes;
+      } else {
+        const defaultImageUrl = validateOptionalPublicUrl(
+          imageUrls[imageField.key],
+          imageField.label + " URL"
+        );
+
+        if (!defaultImageUrl) {
+          return sendJson(res, 400, {
+            error: `${imageField.label} is required as either an uploaded file or default image URL.`,
+            step
+          });
+        }
+
+        fieldData[imageField.slug] = defaultImageUrl;
+      }
     }
 
     if (totalImageBytes > maxTotalImageSizeBytes) {
@@ -685,6 +688,8 @@ export default async function handler(req, res) {
 
     for (const imageField of IMAGE_FIELDS) {
       const parsed = parsedImages[imageField.key];
+
+      if (!parsed) continue;
 
       const uploaded = await uploadImageToSupabase({
         supabaseUrl,
@@ -748,6 +753,39 @@ export default async function handler(req, res) {
       }
     });
 
+    let experimentRecord = null;
+
+    if (abTestEnabled) {
+      step = "creating A/B test experiment";
+
+      const experimentSlug = `${slug}-ab-test`;
+      const routerUrl = buildSiteUrl(baseUrl, "/test", {
+        experiment: experimentSlug
+      });
+
+      const thankYouUrl = buildSiteUrl(baseUrl, "/thank-you", {
+        experiment: experimentSlug,
+        variant: "control"
+      });
+
+      experimentRecord = await insertExperimentRecord({
+        supabaseUrl,
+        serviceRoleKey: supabaseServiceRoleKey,
+        record: {
+          user_id: user.id,
+          landing_page_id: landingPageRecord.id,
+          experiment_slug: experimentSlug,
+          name: `${businessName} A/B Test`,
+          control_url: currentLandingPageUrl,
+          page1_url: publicPageUrl,
+          router_url: routerUrl,
+          thank_you_url: thankYouUrl,
+          split_percent: 50,
+          status: "active"
+        }
+      });
+    }
+
     return sendJson(res, 200, {
       success: true,
       slug,
@@ -755,21 +793,23 @@ export default async function handler(req, res) {
       publicPageUrl,
       editPageUrl,
       landingPageRecord,
+      experiment: experimentRecord,
+      abTest: experimentRecord
+        ? {
+            enabled: true,
+            routerUrl: experimentRecord.router_url,
+            thankYouUrl: experimentRecord.thank_you_url,
+            controlUrl: experimentRecord.control_url,
+            page1Url: experimentRecord.page1_url,
+            experimentSlug: experimentRecord.experiment_slug
+          }
+        : {
+            enabled: false
+          },
       accessLevel,
       existingPageCountBeforeCreate: existingPageCount,
-      uploadedImages: Object.fromEntries(
-        Object.entries(uploadedImages).map(([key, value]) => [
-          key,
-          {
-            publicUrl: value.publicUrl,
-            objectPath: value.objectPath
-          }
-        ])
-      ),
-      colors: Object.fromEntries(
-        COLOR_FIELDS.map((field) => [field.key, fieldData[field.slug]])
-      ),
-      note: "Public page, edit page, and Supabase ownership record created.",
+      uploadedImages,
+      note: "Public page, edit page, Supabase ownership record, and optional A/B experiment created.",
       publicItem,
       editItem
     });
