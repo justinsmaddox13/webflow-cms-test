@@ -758,10 +758,9 @@ export default async function handler(req, res) {
     if (abTestEnabled) {
       step = "creating A/B test experiment";
 
-      const experimentSlug = `${slug}-ab-test`;
-      const routerUrl = buildSiteUrl(baseUrl, "/test", {
-        experiment: experimentSlug
-      });
+const routerUrl = buildSiteUrl("https://webflow-cms-test.vercel.app", "/api/ab-test-go", {
+  experiment: experimentSlug
+});
 
       const thankYouUrl = buildSiteUrl(baseUrl, "/thank-you", {
         experiment: experimentSlug,
